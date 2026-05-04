@@ -1,0 +1,241 @@
+<?php
+
+namespace App\Controllers;
+
+use App\Models\SupplierModel;
+
+class Suppliers extends BaseController
+{
+    protected $supplierModel;
+    protected $session;
+
+    public function __construct()
+    {
+        $this->supplierModel = new SupplierModel();
+        $this->session = session();
+        helper(['form', 'url', 'permission']);
+    }
+
+    public function index()
+    {
+        // Check view permission
+        require_permission('suppliers', 'view');
+
+        $data = [
+            'title' => 'Proveedores',
+            'suppliers' => $this->supplierModel->findAll()
+        ];
+
+        return view('suppliers/index', $data);
+    }
+
+    public function create()
+    {
+        // Check insert permission
+        require_permission('suppliers', 'insert');
+
+        $data = ['title' => 'Nuevo Proveedor'];
+        return view('suppliers/create', $data);
+    }
+
+    public function store()
+    {
+        // Check insert permission
+        require_permission('suppliers', 'insert');
+
+        $validation = \Config\Services::validation();
+
+        $validation->setRules([
+            'name' => 'required|min_length[3]|max_length[200]',
+            'document' => 'permit_empty|max_length[50]',
+            'phone' => 'permit_empty|max_length[50]',
+            'email' => 'permit_empty|valid_email',
+            'address' => 'permit_empty|max_length[500]'
+        ], [
+            'name' => [
+                'required' => 'El nombre es requerido',
+                'min_length' => 'El nombre debe tener al menos 3 caracteres',
+                'max_length' => 'El nombre no puede exceder los 200 caracteres'
+            ],
+            'email' => [
+                'valid_email' => 'El correo electrónico no es válido'
+            ]
+        ]);
+
+        if (!$validation->withRequest($this->request)->run()) {
+            return redirect()->back()->withInput()->with('errors', $validation->getErrors());
+        }
+
+        $data = [
+            'name' => $this->request->getPost('name'),
+            'document' => $this->request->getPost('document'),
+            'phone' => $this->request->getPost('phone'),
+            'email' => $this->request->getPost('email'),
+            'address' => $this->request->getPost('address')
+        ];
+
+        if ($this->supplierModel->insert($data)) {
+            return redirect()->to('/suppliers')->with('success', 'Proveedor creado correctamente');
+        } else {
+            return redirect()->back()->withInput()->with('errors', $this->supplierModel->errors());
+        }
+    }
+
+    public function edit($id)
+    {
+        // Check update permission
+        require_permission('suppliers', 'update');
+
+        $supplier = $this->supplierModel->find($id);
+
+        if (!$supplier) {
+            return redirect()->to('/suppliers')->with('error', 'Proveedor no encontrado');
+        }
+
+        $data = [
+            'title' => 'Editar Proveedor',
+            'supplier' => $supplier
+        ];
+
+        return view('suppliers/edit', $data);
+    }
+
+    public function update($id)
+    {
+        // Check update permission
+        require_permission('suppliers', 'update');
+
+        $validation = \Config\Services::validation();
+
+        $validation->setRules([
+            'name' => 'required|min_length[3]|max_length[200]',
+            'document' => 'permit_empty|max_length[50]',
+            'phone' => 'permit_empty|max_length[50]',
+            'email' => 'permit_empty|valid_email',
+            'address' => 'permit_empty|max_length[500]'
+        ], [
+            'name' => [
+                'required' => 'El nombre es requerido',
+                'min_length' => 'El nombre debe tener al menos 3 caracteres',
+                'max_length' => 'El nombre no puede exceder los 200 caracteres'
+            ],
+            'email' => [
+                'valid_email' => 'El correo electrónico no es válido'
+            ]
+        ]);
+
+        if (!$validation->withRequest($this->request)->run()) {
+            return redirect()->back()->withInput()->with('errors', $validation->getErrors());
+        }
+
+        $data = [
+            'name' => $this->request->getPost('name'),
+            'document' => $this->request->getPost('document'),
+            'phone' => $this->request->getPost('phone'),
+            'email' => $this->request->getPost('email'),
+            'address' => $this->request->getPost('address')
+        ];
+
+        if ($this->supplierModel->skipValidation(true)->update($id, $data)) {
+            return redirect()->to('/suppliers')->with('success', 'Proveedor actualizado correctamente');
+        } else {
+            return redirect()->back()->withInput()->with('errors', $this->supplierModel->errors());
+        }
+    }
+
+    public function delete($id)
+    {
+        // Check delete permission
+        require_permission('suppliers', 'delete');
+
+        // Check if supplier has purchases
+        $purchaseModel = new \App\Models\PurchaseModel();
+        if ($purchaseModel->where('supplier_id', $id)->countAllResults() > 0) {
+            return redirect()->to('/suppliers')->with('error', 'No se puede eliminar el proveedor porque tiene compras asociadas');
+        }
+
+        if ($this->supplierModel->delete($id)) {
+            return redirect()->to('/suppliers')->with('success', 'Proveedor eliminado correctamente');
+        } else {
+            return redirect()->to('/suppliers')->with('error', 'No se pudo eliminar el proveedor');
+        }
+    }
+
+    public function account($id)
+    {
+        $supplier = $this->supplierModel->find($id);
+
+        if (!$supplier) {
+            return redirect()->to('/suppliers')->with('error', 'Proveedor no encontrado');
+        }
+
+        $data = [
+            'title' => 'Cuenta Corriente - ' . $supplier['name'],
+            'supplier' => $supplier,
+            'balance' => $this->supplierModel->getAccountBalance($id),
+            'purchases' => $this->supplierModel->getPurchasesHistory($id)
+        ];
+
+        return view('suppliers/account', $data);
+    }
+    public function ajaxStore()
+    {
+        // Check insert permission
+        if (!has_permission('suppliers', 'insert')) {
+            return $this->response->setJSON([
+                'success' => false,
+                'errors' => ['auth' => 'No tiene permiso para crear proveedores']
+            ]);
+        }
+
+        $validation = \Config\Services::validation();
+
+        $validation->setRules([
+            'name' => 'required|min_length[3]|max_length[200]',
+            'document' => 'permit_empty|max_length[50]',
+            'phone' => 'permit_empty|max_length[50]',
+            'email' => 'permit_empty|valid_email',
+            'address' => 'permit_empty|max_length[500]'
+        ], [
+            'name' => [
+                'required' => 'El nombre es requerido',
+                'min_length' => 'El nombre debe tener al menos 3 caracteres',
+                'max_length' => 'El nombre no puede exceder los 200 caracteres'
+            ],
+            'email' => [
+                'valid_email' => 'El correo electrónico no es válido'
+            ]
+        ]);
+
+        if (!$validation->withRequest($this->request)->run()) {
+            return $this->response->setJSON([
+                'success' => false,
+                'errors' => $validation->getErrors()
+            ]);
+        }
+
+        $data = [
+            'name' => $this->request->getPost('name'),
+            'document' => $this->request->getPost('document'),
+            'phone' => $this->request->getPost('phone'),
+            'email' => $this->request->getPost('email'),
+            'address' => $this->request->getPost('address')
+        ];
+
+        // Ensure empty fields are handled correctly if your db requires
+        if (empty($data['email'])) unset($data['email']);
+
+        if ($this->supplierModel->insert($data)) {
+            $data['id'] = $this->supplierModel->getInsertID();
+            return $this->response->setJSON([
+                'success' => true,
+                'supplier' => $data
+            ]);
+        } else {
+            return $this->response->setJSON([
+                'success' => false,
+                'errors' => $this->supplierModel->errors()
+            ]);
+        }
+    }
+}
